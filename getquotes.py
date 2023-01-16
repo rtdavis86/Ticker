@@ -8,8 +8,9 @@ import threading
 import os
 
 class MainWindow():
-    def __init__(self, label=None):
+    def __init__(self, root, label):
         self.dbfile = 'stockscroll.sqlite'
+        self.root = root
 
         # Update stock list from latest schwab download
         self.parsecsv()
@@ -22,7 +23,7 @@ class MainWindow():
 
 
     def checkprice(self):
-        pricedelay = 3.0
+        pricedelay = 3 * 1000
         numquotes = 10
         symbols = self.symbols[self.priceindex:self.priceindex + numquotes]
         if not self.label is None:
@@ -39,9 +40,9 @@ class MainWindow():
             self.priceindex = 0
 
         if not self.anyNone() and len(pricedict) > 0 and v['state'] == 'CLOSED' and pp > 0.1:
-            pricedelay = 60 * 5
+            pricedelay = 60 * 5 * 1000
             self.label.configure(text=f'Getting Quotes: Markets Closed')
-        threading.Timer(pricedelay, self.checkprice).start()
+        self.root.after(pricedelay, self.checkprice)
 
 
     def getSymbolList(self, idDict=False):
@@ -81,9 +82,9 @@ class MainWindow():
                 f = None
 
         if f is None:
-            stockdict = {'CASH':('', 0, 0), 'SPY':('SPDR S&P 500 ETF', 0, 0), 'AAPL':('Apple Inc', 0, 0), 'QQQ': ('Invesco QQQ', 0, 0)}
+            stockdict = {'CASH':('', 0, 0), '^SPX':('S&P 500', 0, 0), 'SPY':('SPDR S&P 500 ETF', 0, 0), 'AAPL':('Apple Inc', 0, 0), 'QQQ': ('Invesco QQQ', 0, 0)}
             fn = self.writecsv(stockdict)
-            messagebox.showwarning('No CSV File', f'Unable to open schwab.csv or stockscroll.csv.  Using default stocklist.  Edit {fn} to changes stocklist.')
+            messagebox.showwarning('No CSV File', f'Unable to open schwab.csv or stockscroll.csv.  Using default stock list.  To change stock list, edit:\n{fn}')
         else:
             with f:
                 csv_file = csv.reader(f)
@@ -97,7 +98,7 @@ class MainWindow():
                             cur.execute('UPDATE StockList SET shares=? WHERE name=?', (row[cashrow], 'CASH',))
                         else:
                             cur.execute('INSERT INTO StockList (name,shares) VALUES (?,?)', ('CASH', row[cashrow]))
-                        break
+                        continue
                     _, shares, basis = stockdict.get(row[0], ('',0,0))
                     shares += util.tryFloat(row[quanrow])
                     basis = util.tryFloat(row[basisrow])
@@ -106,7 +107,9 @@ class MainWindow():
                     else: 
                         sym = row[0].upper()
                     stockdict[sym] = (row[1], shares, basis)
-                
+        
+        if not '^SPX' in stockdict.keys():
+            stockdict['^SPX'] = ('S&P 500', 0, 0)
         for k, v in stockdict.items():
             if self.exists(cur, k):
                 cur.execute('UPDATE StockList SET description=?,Shares=?,Basis=? WHERE name=?',(v[0], v[1], v[2], k))

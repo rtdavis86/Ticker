@@ -25,7 +25,7 @@ class MainWindow():
         self.setupLabels()
 
         # Start getting quotes
-        self.quote = getquotes.MainWindow(self.quotelabel)
+        self.quote = getquotes.MainWindow(root,self.quotelabel)
 
         self.symbols = self.getSymbolList()
         self.loop()
@@ -334,7 +334,7 @@ class MainWindow():
         cur.execute('SELECT Price, PreviousClose FROM StockList WHERE name=?', (sym,))
         data = cur.fetchone()
         if data is None or len(data) == 0:
-            return 0.0
+            return 0.0, 1.0
         if data[0] is None: rval = 0.0
         else: rval = data[0]
         if data[1] is None: pclose = 1.0
