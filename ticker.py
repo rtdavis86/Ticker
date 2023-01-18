@@ -20,16 +20,24 @@ class MainWindow():
         self.port_delay = self.options[2]
         self.loop_count = 0
         self.loop_time = 0
+        self.show_leadlag = False
+        self.leadlagshow = 5
         
         # Setup Labels for 2 lines of text: 0-info message, 1-tick changes
         self.setupLabels()
 
         # Start getting quotes
-        self.quote = getquotes.MainWindow(root,self.quotelabel)
+        self.quote = getquotes.MainWindow(root,self.quote_callback)
 
         self.symbols = self.getSymbolList()
         self.loop()
         self.updatePort()
+
+    def quote_callback(self, msg, data):
+        if not self.show_leadlag and 'quote' in msg:
+            self.leadlaglabels[0].configure(text=data)
+        elif 'done' in msg:
+            self.show_leadlag = True
 
     def setup(self):
         self.dbfile = 'stockscroll.sqlite'
@@ -143,12 +151,14 @@ class MainWindow():
         self.labelitems[0].configure(text=status[0])
         self.labelitems[1].configure(text=f'{util.strfloat(total,0)}')
         if total == 0.0: divideby = 1.0
-        else: divideby = total
+        else: divideby = total-allchange
         self.labelitems[2].configure(text=f'{util.strfloat(allchange,0)} ({util.strfloat(100*allchange/divideby,1)}%)')
         if allchange >= 0.0: 
             self.labelitems[2].configure(fg='green')
         else: 
             self.labelitems[2].configure(fg='red')
+        if total == 0.0: divideby = 1.0
+        else: divideby = total-daychange
         self.labelitems[3].configure(text=f'{util.strfloat(daychange,0)} ({util.strfloat(100*daychange/divideby,1)}%)')
         if daychange >= 0.0: 
             self.labelitems[3].configure(fg='green')
@@ -164,6 +174,29 @@ class MainWindow():
             self.labelitems[4].configure(fg='green')
         else: 
             self.labelitems[4].configure(fg='red')
+
+        if self.show_leadlag:  # Need to deal with having < 10 symbols in list
+            data = self.getSymbolPrices()
+            data = [d for d in data if d[0] != 'CASH']
+            data = sorted(data, key=lambda d: d[1]/d[2] if not d[1] is None and not d[2] is None else 0, reverse=True)
+            lead_lag = data[:self.leadlagshow] + data[-self.leadlagshow:]
+            self.leadlaglabels[0].configure(text='Lead: ')
+            self.leadlaglabels[self.leadlagshow+1].configure(text='Lag: ')
+            msg = 'Lead: '
+            add_pos = 1
+            for i, item  in enumerate(lead_lag):
+                sym, price, pp, _, _ = item
+                if pp == 0.0: pp = 1.0
+                if i == self.leadlagshow: 
+                    add_pos = 2
+                pos = i + add_pos
+                msg = f'{sym} {100.0*(price/pp-1):.2f}%'
+                if price > pp:
+                    self.leadlaglabels[pos].configure(text=msg, fg='green')
+                elif price < pp:
+                    self.leadlaglabels[pos].configure(text=msg, fg='red')
+                else:
+                    self.leadlaglabels[pos].configure(text=msg, fg='black')
         
         self.root.after(self.port_delay, self.updatePort)
 
@@ -295,8 +328,11 @@ class MainWindow():
             item = Label(self.tickFrame, text=f"XXX{i}: 145.0 (2.0%)", fg='green', padx=1, anchor='w')
             item.pack(side=LEFT)
             self.tickitems.append(item)
-        self.quotelabel = Label(self.root, text='Quotes: Markets Closed', anchor='w')
-        self.quotelabel.pack(fill=BOTH)
+
+        self.leadlaglabels = []
+        for i in range(self.leadlagshow*2 + 2):
+            self.leadlaglabels.append(Label(self.root, text=' ', anchor='w'))
+            self.leadlaglabels[-1].pack(side=LEFT)
 
 
     def getSymbolList(self, idDict=False):

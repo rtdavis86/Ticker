@@ -8,7 +8,7 @@ import threading
 import os
 
 class MainWindow():
-    def __init__(self, root, label):
+    def __init__(self, root, callback):  # callback(message, data)
         self.dbfile = 'stockscroll.sqlite'
         self.root = root
 
@@ -17,7 +17,7 @@ class MainWindow():
 
         # Get quotes and update database
         self.priceindex = 0
-        self.label = label
+        self.callback = callback
         self.symbols = self.getSymbolList()
         self.checkprice()
 
@@ -26,8 +26,8 @@ class MainWindow():
         pricedelay = 3 * 1000
         numquotes = 10
         symbols = self.symbols[self.priceindex:self.priceindex + numquotes]
-        if not self.label is None:
-            self.label.configure(text=f'Getting Quotes: {symbols}')
+        if not self.callback is None:
+            self.callback('quote', f'Getting Quotes: {symbols}')
         
         pricedict = self.getQuotes(symbols)
         for k, v in pricedict.items():
@@ -38,6 +38,7 @@ class MainWindow():
         self.priceindex += numquotes
         if self.priceindex >= len(self.symbols):
             self.priceindex = 0
+            self.callback('done with first round', None)
 
         if not self.anyNone() and len(pricedict) > 0 and v['state'] == 'CLOSED' and pp > 0.1:
             pricedelay = 60 * 5 * 1000
@@ -66,18 +67,20 @@ class MainWindow():
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         stockdict = {}
+        schwab = False
 
         try:
             f = open(filename_schwab, 'r')
-            quanrow = 2
-            basisrow = 9
-            cashrow = 6
+            schwab_type = True
+            quancol = 2
+            basiscol = 9
+            cashcol = 6
         except:
             try:
                 f = open(file_csv, 'r')
-                quanrow = 2
-                basisrow = 3
-                cashrow = 2
+                quancol = 2
+                basiscol = 3
+                cashcol = 2
             except:
                 f = None
 
@@ -95,13 +98,15 @@ class MainWindow():
                     if not start: continue
                     if 'cash' in row[0].lower():
                         if self.exists(cur, 'CASH'):
-                            cur.execute('UPDATE StockList SET shares=? WHERE name=?', (row[cashrow], 'CASH',))
+                            cur.execute('UPDATE StockList SET shares=? WHERE name=?', (row[cashcol], 'CASH',))
                         else:
-                            cur.execute('INSERT INTO StockList (name,shares) VALUES (?,?)', ('CASH', row[cashrow]))
+                            cur.execute('INSERT INTO StockList (name,shares) VALUES (?,?)', ('CASH', row[cashcol]))
                         continue
+                    if schwab_type and 'Account' in row[0]:
+                        break
                     _, shares, basis = stockdict.get(row[0], ('',0,0))
-                    shares += util.tryFloat(row[quanrow])
-                    basis = util.tryFloat(row[basisrow])
+                    shares += util.tryFloat(row[quancol])
+                    basis = util.tryFloat(row[basiscol])
                     if row[0].upper() == 'BRK/B': 
                         sym = 'BRK-B'
                     else: 
