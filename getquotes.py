@@ -42,7 +42,7 @@ class MainWindow():
 
         if not self.anyNone() and len(pricedict) > 0 and v['state'] == 'CLOSED' and pp > 0.1:
             pricedelay = 60 * 5 * 1000
-            self.label.configure(text=f'Getting Quotes: Markets Closed')
+            self.callback('quote', 'Getting Quotes: Markets Closed')
         self.root.after(pricedelay, self.checkprice)
 
 
