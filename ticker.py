@@ -10,7 +10,7 @@ import portplot
 
 # To-D0:
 # 1.  Improve config box, add image for button
-# 2.  Click to plot, portfolio and individual stocks
+# 
 
 class MainWindow():
     def __init__(self, root):
@@ -27,7 +27,7 @@ class MainWindow():
         self.loop_time = 0
         self.show_leadlag = False
         self.leadlagshow = 5
-        self.plot_list = []
+        self.plot = portplot.MainWindow(root)
         
         # Setup Labels for 2 lines of text: 0-info message, 1-tick changes
         self.setupLabels()
@@ -39,16 +39,15 @@ class MainWindow():
         self.loop()
         self.updatePort()
 
-    def click_label(self, sym):
-        for plot in self.plot_list:
-            if plot[0] == sym:
-                plot[1].bringtofront()
-                return
-        plot = portplot.MainWindow(self.root, sym, self.plot_callback)
-        self.plot_list.append((sym,plot))
-
-    def plot_callback(self, sym):
-        self.plot_list = [p for p in self.plot_list if p[0] != sym]
+    def click_label(self, data):
+        if type(data) is str:
+            if data == 'S&P500': sym = '^SPX'
+            else: sym = data
+        else:
+            sym = data.cget('text')
+            crem = '0123456789.()% '
+            sym = ''.join([c for c in sym if not c in crem])
+        self.plot.addfig(sym)
 
     def quote_callback(self, msg, data):
         if not self.show_leadlag and 'quote' in msg:
@@ -361,8 +360,11 @@ class MainWindow():
             self.leadlaglabels.append(Label(self.root, text=' ', anchor='w'))
             self.leadlaglabels[-1].pack(side=LEFT)
 
-        for label in self.labelitems[:-1]:
-            label.bind("<Button-1>", lambda e:self.click_label('TAV'))
+        for i, list in enumerate([self.labelitems[:-1], self.tickitems, self.leadlaglabels]):
+            if i == 0: msg = 'TAV'
+            for label in list:
+                if i > 0: msg = label
+                label.bind("<Button-1>", lambda e, msg=msg:self.click_label(msg))
         self.labelitems[-1].bind("<Button-1>", lambda e:self.click_label('S&P500'))
 
 
