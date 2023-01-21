@@ -11,6 +11,8 @@ class MainWindow():
     def __init__(self, root, callback):  # callback(message, data)
         self.dbfile = 'stockscroll.sqlite'
         self.root = root
+        self.quotes_done = False
+        self.num_quotes = 0
 
         # Update stock list from latest schwab download
         self.parsecsv()
@@ -38,9 +40,10 @@ class MainWindow():
         self.priceindex += numquotes
         if self.priceindex >= len(self.symbols):
             self.priceindex = 0
-            self.callback('done with first round', None)
+            self.quotes_done = True
+            self.callback('done', None)
 
-        if not self.anyNone() and len(pricedict) > 0 and v['state'] == 'CLOSED' and pp > 0.1:
+        if v['state'] == 'CLOSED':
             pricedelay = 60 * 5 * 1000
             self.callback('quote', 'Getting Quotes: Markets Closed')
         self.root.after(pricedelay, self.checkprice)
@@ -152,7 +155,7 @@ class MainWindow():
             return True
 
     def getQuotes(self, symbols):
-        '''Reteurns (Current Price, Previous Close, Market State)'''
+        '''Reteurns (Current Price, Previous Close, Market State, quote unixtime)'''
         quote = Ticker(symbols).price
         quoteDict = {}
         for k, v in quote.items():

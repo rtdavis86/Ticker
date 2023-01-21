@@ -6,6 +6,11 @@ from yahooquery import Ticker
 import getquotes
 import time
 import utility as util
+import portplot
+
+# To-D0:
+# 1.  Improve config box, add image for button
+# 2.  Click to plot, portfolio and individual stocks
 
 class MainWindow():
     def __init__(self, root):
@@ -22,6 +27,7 @@ class MainWindow():
         self.loop_time = 0
         self.show_leadlag = False
         self.leadlagshow = 5
+        self.plot_list = []
         
         # Setup Labels for 2 lines of text: 0-info message, 1-tick changes
         self.setupLabels()
@@ -32,6 +38,17 @@ class MainWindow():
         self.symbols = self.getSymbolList()
         self.loop()
         self.updatePort()
+
+    def click_label(self, sym):
+        for plot in self.plot_list:
+            if plot[0] == sym:
+                plot[1].bringtofront()
+                return
+        plot = portplot.MainWindow(self.root, sym, self.plot_callback)
+        self.plot_list.append((sym,plot))
+
+    def plot_callback(self, sym):
+        self.plot_list = [p for p in self.plot_list if p[0] != sym]
 
     def quote_callback(self, msg, data):
         if not self.show_leadlag and 'quote' in msg:
@@ -300,19 +317,29 @@ class MainWindow():
         
         self.labelFrame = Frame(self.root)
         self.labelFrame.pack(fill='both')
-        Label(self.labelFrame, text='Markets: ').pack(side=LEFT)
+        alabel = Label(self.labelFrame, text='Markets: ')
+        alabel.pack(side=LEFT)
+        alabel.bind("<Button-1>", lambda e:self.click_label('TAV'))
         self.labelitems.append(Label(self.labelFrame, text='CLOSED'))
         self.labelitems[-1].pack(side=LEFT)
-        Label(self.labelFrame,text='  Total Account Value: ').pack(side=LEFT)
+        alabel = Label(self.labelFrame,text='  Total Account Value: ')
+        alabel.pack(side=LEFT)
+        alabel.bind("<Button-1>", lambda e:self.click_label('TAV'))
         self.labelitems.append(Label(self.labelFrame, text='72000'))
         self.labelitems[-1].pack(side=LEFT)
-        Label(self.labelFrame, text='  Unrealized P&L: ').pack(side=LEFT)
+        alabel = Label(self.labelFrame, text='  Unrealized P&L: ')
+        alabel.pack(side=LEFT)
+        alabel.bind("<Button-1>", lambda e:self.click_label('TAV'))
         self.labelitems.append(Label(self.labelFrame, text='P&L (%P&L)'))
         self.labelitems[-1].pack(side=LEFT)
-        Label(self.labelFrame, text='  Day P&L: ').pack(side=LEFT)
+        alabel = Label(self.labelFrame, text='  Day P&L: ')
+        alabel.pack(side=LEFT)
+        alabel.bind("<Button-1>", lambda e:self.click_label('TAV'))
         self.labelitems.append(Label(self.labelFrame, text='P&L (%P&L)'))
         self.labelitems[-1].pack(side=LEFT)
-        Label(self.labelFrame, text='  S&P500: ').pack(side=LEFT)
+        alabel = Label(self.labelFrame, text='  S&P500: ')
+        alabel.pack(side=LEFT)
+        alabel.bind("<Button-1>", lambda e:self.click_label('S&P500'))
         self.labelitems.append(Label(self.labelFrame, text='4000 (0.5%)'))
         self.labelitems[-1].pack(side=LEFT)
         buttonfont = Font(size=12)
@@ -333,6 +360,10 @@ class MainWindow():
         for i in range(self.leadlagshow*2 + 2):
             self.leadlaglabels.append(Label(self.root, text=' ', anchor='w'))
             self.leadlaglabels[-1].pack(side=LEFT)
+
+        for label in self.labelitems[:-1]:
+            label.bind("<Button-1>", lambda e:self.click_label('TAV'))
+        self.labelitems[-1].bind("<Button-1>", lambda e:self.click_label('S&P500'))
 
 
     def getSymbolList(self, idDict=False):
