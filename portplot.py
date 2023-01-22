@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from matplotlib.widgets import Button as pltButton
 import math
+from tkinter import messagebox
 
 class MainWindow():
     def __init__(self, root):
@@ -22,6 +23,9 @@ class MainWindow():
         self.updatePlot()
 
     def addfig(self, sym):
+        if self.lockdb:
+            messagebox.showwarning('Plot Warning', 'Plot not available until quotes finish loading.')
+            return
         if sym in self.figdict.keys():
             return
         fig = plt.figure()
@@ -32,22 +36,21 @@ class MainWindow():
         mngr = plt.get_current_fig_manager()
         mngr.window.wm_geometry('%dx%d+%d+%d' % (1450, 600, 30, 30))
         plt.ion()
-        self.add_buttons(sym)
+        but_list = self.add_buttons(sym)
         plt.show()
-        self.figdict[sym] = {'fig': fig, 'ax': ax, 'artlist': [], 'mode': 'd', 'per': 1}
+        self.figdict[sym] = {'fig': fig, 'ax': ax, 'artlist': [], 'mode': 'd', 'per': 1, 'but_list': but_list}
         self.plotPort(sym)
 
     def bringtofront(self):
         print(f'Bring {self.sym} to front')
 
     def on_close(self, event, sym):
-        print(event)
         del self.figdict[sym]
 
     def add_buttons(self, sym):
         x_start = 0.12
         options = [[1,2,5,10], [1,2,5,10]]
-        self.day_buttons = []
+        day_buttons = []
         for i, mode in enumerate(['d', 'w']):
             bax = plt.axes([x_start, 0.015, 0.04, 0.04])
             bax.axis('off')
@@ -58,9 +61,10 @@ class MainWindow():
             for opt in options[i]:
                 bax = plt.axes(bax_points)
                 bax_points[0] += bax_points[1]*2 + 0.01
-                self.day_buttons.append(pltButton(bax, f'{opt}{mode}'))
-                self.day_buttons[-1].on_clicked(lambda e, per=opt, mode=mode, sym=sym: self.press_button(per, mode, sym))
+                day_buttons.append(pltButton(bax, f'{opt}{mode}'))
+                day_buttons[-1].on_clicked(lambda e, per=opt, mode=mode, sym=sym: self.press_button(per, mode, sym))
             x_start += (bax_points[1] * 2 + 0.01) * 4 + 0.03
+        return day_buttons
 
     def press_button(self, per, mode, sym):
         if self.figdict[sym]['mode'] != mode:
@@ -120,13 +124,18 @@ class MainWindow():
         shareDict = {}
         lastprice = {}
         prevclose = {}
-        for s, price, pclose, shares, _, _ in data:
+        basis = {}
+        for s, price, pclose, shares, b, _ in data:
             if s == 'CASH':
                 cash = util.tryFloat(shares)
             else:
                 shareDict[s] = shares
                 lastprice[s] = price
                 prevclose[s] = pclose
+                if shares == 0:
+                    basis[s] = None
+                else:
+                    basis[s] = b/shares
 
         history, histtimes = self.getdbHistory(mode)
         if len(histtimes) == 0:
@@ -151,6 +160,7 @@ class MainWindow():
             for s in history.keys():
                 history[s] = history[s][-len(histtimes):]
 
+        basis_line = None
         if sym == 'TAV':
             for step in range(len(histtimes)+1):
                 stepTotal = cash
@@ -164,6 +174,8 @@ class MainWindow():
                 total.append(stepTotal)
         else:
             total = history[sym]
+            if (not basis[sym] is None) and basis[sym] > 0:
+                basis_line = basis[sym]
 
         ptotal = total[0]
         ax.plot(total, color='black')
@@ -172,6 +184,8 @@ class MainWindow():
         else:
             msg = f'{sym}: '
         msg += f'{total[-1]:.2f} ({100.0*(total[-1]/ptotal-1):.2f}%)'
+        if not basis_line is None:
+            msg += f', Basis: {basis_line:.2f} ({100*(total[-1]/basis_line-1):.2f}%)'
         
         fig.suptitle(msg, fontsize=20)
 
@@ -190,6 +204,11 @@ class MainWindow():
         artlist = []
         xlim = ax.get_xlim()
         ylim = ax.get_ylim()
+        # Basis line
+        if (not basis_line is None) and basis_line > ylim[0] and basis_line < ylim[1]:
+            lineitem = ax.axhline(y=basis_line, color='blue', linestyle='-')
+            artlist.append(lineitem)
+            atext = ax.text(xlim[0], basis_line, f'Basis = {basis_line:.2f}', ha='left', va='bottom')
         if math.floor(minv_per) < 0.0:
             a = np.arange(0.0, math.floor(minv_per), -delta_per)
         else:
@@ -258,6 +277,7 @@ class MainWindow():
 
         # Convert timestamp to unixsecs: int(timevalues[i].to_pydatetime().timestamp())
         # Convert unixsecs to datetime: datetime.fromtimestamp(unixsecs)
+        self.win = None
         for mode in ['d', 'w']:
             if mode == 'd':
                 per = '10d'
@@ -271,30 +291,51 @@ class MainWindow():
             history, histtimes = self.getdbHistory(mode)
             need_update = False
             if len(histtimes) == 0: need_update = True
-            if abs(timevalues[0]-histtimes[0]) > 60 * 60: need_update = True
-            if timevalues[-1] - histtimes[-1] > 60*60*2: need_update = True
+            elif abs(timevalues[0]-histtimes[0]) > 60 * 60: need_update = True
+            elif timevalues[-1] - histtimes[-1] > 60*60*2: need_update = True
             if not need_update:
-                return
-            print(f'len(histtimes)={len(histtimes)}, Start delta (mins): {abs(timevalues[0]-histtimes[0])/(60*60):.1f}, End Delta (hr): {abs(timevalues[-1]-histtimes[-1])/(60*60):.1f}')
+                continue
+            if self.win is None:
+                self.win = Toplevel()
+            tbox = Text(self.win)
+            tbox.pack()
+            msg = f'Update Needed for mode {mode}: len(histtimes)={len(histtimes)}\n'
+            if len(histtimes) > 0:
+                msg += f'Start delta (mins): {abs(timevalues[0]-histtimes[0])/(60*60):.1f}'
+                msg += f', End Delta (min): {abs(timevalues[-1]-histtimes[-1])/(60*60):.1f}\n'
+            tbox.insert(END, msg)
 
             self.lockdb = True
             conn = sqlite3.connect(self.dbfile)
             cur = conn.cursor()
             cur.execute(f'DELETE FROM PlotHistory_{mode}')
-            for sym, id in iddict.items():
-                history = Ticker(sym).history(period=per, interval=interval)
-                print(sym,end=', ')
-                if history.get('close', None) is None: continue
-                timevalues = history.index.tolist()
-                values = history['close'].to_list()
-                for i, (sym, time) in enumerate(timevalues):
-                    unixtime = int(time.to_pydatetime().timestamp())
-                    cur.execute(f'INSERT INTO PlotHistory_{mode} (stock_id, price, unixtime) VALUES(?,?,?)', (id,values[i],unixtime))
-                conn.commit()
-
             conn.commit()
+            self.iddict = iddict
+            self.symkeys = list(iddict.keys())
+            self.sympos = 0
+            self.updateoneattime(per, interval, tbox, mode)
+
+    def updateoneattime(self, per, interval, tbox, mode):
+        conn = sqlite3.connect(self.dbfile)
+        cur = conn.cursor()
+        sym = self.symkeys[self.sympos]
+        id = self.iddict[sym]
+        history = Ticker(sym).history(period=per, interval=interval)
+        tbox.insert(END, sym + ' ')
+        if not history.get('close', None) is None:
+            timevalues = history.index.tolist()
+            values = history['close'].to_list()
+            for i, (sym, time) in enumerate(timevalues):
+                unixtime = int(time.to_pydatetime().timestamp())
+                cur.execute(f'INSERT INTO PlotHistory_{mode} (stock_id, price, unixtime) VALUES(?,?,?)', (id,values[i],unixtime))
+            conn.commit()
+        self.sympos += 1
+        if self.sympos < len(self.symkeys):
+            self.root.after(100, lambda per=per, interval=interval, tbox=tbox, mode=mode: self.updateoneattime(per,interval,tbox,mode))
+        else:
             self.lockdb = False
-        print('Done')
+            tbox.insert(END, '\nDone')
+            self.win.after(3000, self.win.destroy)
 
     def getdbHistory(self, mode):
         '''Returns pricedict{[price]}, [unixtime]'''

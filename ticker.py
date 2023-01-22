@@ -45,8 +45,9 @@ class MainWindow():
             else: sym = data
         else:
             sym = data.cget('text')
-            crem = '0123456789.()% '
+            crem = '0123456789.()% -'
             sym = ''.join([c for c in sym if not c in crem])
+            if sym == 'BRKB': sym = 'BRK-B'
         self.plot.addfig(sym)
 
     def quote_callback(self, msg, data):

@@ -4,7 +4,6 @@ import sqlite3
 from yahooquery import Ticker
 import utility as util
 import csv
-import threading
 import os
 
 class MainWindow():
@@ -45,7 +44,7 @@ class MainWindow():
 
         if v['state'] == 'CLOSED':
             pricedelay = 60 * 5 * 1000
-            self.callback('quote', 'Getting Quotes: Markets Closed')
+            self.callback('done', 'Getting Quotes: Markets Closed')
         self.root.after(pricedelay, self.checkprice)
 
 
