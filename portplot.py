@@ -3,11 +3,13 @@ import sqlite3
 from yahooquery import Ticker
 import utility as util
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import numpy as np
 from matplotlib.widgets import Button as pltButton
 import math
 from tkinter import messagebox
+from pandas import Timestamp
+from dateutil.relativedelta import relativedelta
 
 class MainWindow():
     def __init__(self, root):
@@ -18,6 +20,7 @@ class MainWindow():
         self.lockdb = False
         self.figdict = {}  # Items in dict: fig, ax, artlist 
 
+        self.createTables()
         self.getQuoteHistory()
         self.updateHistory()
         self.updatePlot()
@@ -49,21 +52,22 @@ class MainWindow():
 
     def add_buttons(self, sym):
         x_start = 0.12
-        options = [[1,2,5,10], [1,2,5,10]]
+        options = [[1,2,5,10], [1,2,5,10], [1,2,6,12]]
         day_buttons = []
-        for i, mode in enumerate(['d', 'w']):
+        for i, mode in enumerate(['d', 'w', 'm']):
             bax = plt.axes([x_start, 0.015, 0.04, 0.04])
             bax.axis('off')
             if mode == 'd': ptext = 'Day: '
             elif mode == 'w': ptext = 'Week: '
+            elif mode == 'm': ptext = 'Month:'
             bax.text(0.5,0.5,ptext, va='center', ha='center')
-            bax_points = [x_start+0.03, 0.015, 0.04, 0.04]
+            bax_points = [x_start+0.038, 0.015, 0.04, 0.04]
             for opt in options[i]:
                 bax = plt.axes(bax_points)
                 bax_points[0] += bax_points[1]*2 + 0.01
                 day_buttons.append(pltButton(bax, f'{opt}{mode}'))
                 day_buttons[-1].on_clicked(lambda e, per=opt, mode=mode, sym=sym: self.press_button(per, mode, sym))
-            x_start += (bax_points[1] * 2 + 0.01) * 4 + 0.03
+            x_start += (bax_points[1] * 2 + 0.01) * 4 + 0.038
         return day_buttons
 
     def press_button(self, per, mode, sym):
@@ -94,7 +98,7 @@ class MainWindow():
             conn = sqlite3.connect(self.dbfile, uri=True)
             cur = conn.cursor()
             last_time = []
-            for mode in ['d', 'w']:
+            for mode in ['d', 'w', 'm']:
                 cur.execute(f'SELECT unixtime FROM PlotHistory_{mode} ORDER BY unixtime DESC')
                 utdata = cur.fetchone()
                 if utdata is None or len(utdata) == 0:
@@ -143,22 +147,26 @@ class MainWindow():
             history, histtimes = self.getdbHistory(mode)
         self.last_time = histtimes[-1]
 
-        if per < 10:
-            if mode == 'd':
-                days_list = list(set([datetime.fromtimestamp(ut).day for ut in histtimes]))
-                dt = datetime.fromtimestamp(self.last_time)
-                day_index = 10 - per
-                if day_index < 0: day_index = 0
-                if day_index >= len(days_list): day_index = len(day_index)-1
-                mindate = datetime(dt.year, dt.month, days_list[day_index], 1, 0).timestamp()
-            elif mode == 'w':
-                dt = datetime.fromtimestamp(self.last_time)
-                begin_dt = dt - timedelta(days=per*7)
-                begin_dt = begin_dt.replace(hour=1)
-                mindate = begin_dt.timestamp()
-            histtimes = [h for h in histtimes if h > mindate]
-            for s in history.keys():
-                history[s] = history[s][-len(histtimes):]
+        if mode == 'd':
+            days_list = list(set([datetime.fromtimestamp(ut).day for ut in histtimes]))
+            dt = datetime.fromtimestamp(self.last_time)
+            day_index = 10 - per
+            if day_index < 0: day_index = 0
+            if day_index >= len(days_list): day_index = len(day_index)-1
+            mindate = datetime(dt.year, dt.month, days_list[day_index], 1, 0).timestamp()
+        elif mode == 'w':
+            dt = datetime.fromtimestamp(self.last_time)
+            begin_dt = dt - timedelta(days=per*7)
+            begin_dt = begin_dt.replace(hour=1)
+            mindate = begin_dt.timestamp()
+        elif mode == 'm':
+            dt = datetime.fromtimestamp(self.last_time)
+            begin_dt = dt - relativedelta(months=per)
+            begin_dt = begin_dt.replace(hour=1)
+            mindate = begin_dt.timestamp()
+        histtimes = [h for h in histtimes if h > mindate]
+        for s in history.keys():
+            history[s] = history[s][-len(histtimes):]
 
         basis_line = None
         if sym == 'TAV':
@@ -278,16 +286,22 @@ class MainWindow():
         # Convert timestamp to unixsecs: int(timevalues[i].to_pydatetime().timestamp())
         # Convert unixsecs to datetime: datetime.fromtimestamp(unixsecs)
         self.win = None
-        for mode in ['d', 'w']:
+        for mode in ['d', 'w', 'm']:
             if mode == 'd':
                 per = '10d'
                 interval = '5m'
             elif mode == 'w':
                 per = '3mo'
                 interval = '60m'
+            elif mode == 'm':
+                per = '1y'
+                interval = '1d'
             history_AAPL = Ticker('AAPL').history(period=per, interval=interval)
             timevalues = history_AAPL.index.tolist()
-            timevalues = [int(t.to_pydatetime().timestamp()) for sym,t in timevalues]
+            if type(timevalues[0][1]) is Timestamp:
+                timevalues = [int(t.to_pydatetime().timestamp()) for sym,t in timevalues]
+            else:
+                timevalues = [int(datetime.combine(t, datetime.min.time()).timestamp()) for sym,t in timevalues]
             history, histtimes = self.getdbHistory(mode)
             need_update = False
             if len(histtimes) == 0: need_update = True
@@ -326,7 +340,10 @@ class MainWindow():
             timevalues = history.index.tolist()
             values = history['close'].to_list()
             for i, (sym, time) in enumerate(timevalues):
-                unixtime = int(time.to_pydatetime().timestamp())
+                if type(time) is Timestamp:
+                    unixtime = int(time.to_pydatetime().timestamp())
+                else:
+                    unixtime = int(datetime.combine(time, datetime.min.time()).timestamp())
                 cur.execute(f'INSERT INTO PlotHistory_{mode} (stock_id, price, unixtime) VALUES(?,?,?)', (id,values[i],unixtime))
             conn.commit()
         self.sympos += 1
@@ -355,6 +372,14 @@ class MainWindow():
                 havetimes = True
         return history, histtimes
 
+    def createTables(self):
+        mode_options = ['d', 'w', 'm']
+        conn = sqlite3.connect(self.dbfile)
+        cur = conn.cursor()
+        for mode in mode_options:
+            exe_statement = f'CREATE TABLE IF NOT EXISTS "PlotHistory_{mode}" ("stock_id" INTEGER, "price" REAL, "unixtime" INTEGER);'
+            cur.execute(exe_statement)
+        conn.commit()
 
     def getSymbolList(self, idDict=False):
         '''Returns list of symbols or dict (sym is key, id is value)'''
