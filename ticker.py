@@ -27,7 +27,9 @@ class MainWindow():
         self.loop_time = 0
         self.show_leadlag = False
         self.leadlagshow = 5
+        root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.plot = portplot.MainWindow(root)
+        self.after = [None, None]
         
         # Setup Labels for 2 lines of text: 0-info message, 1-tick changes
         self.setupLabels()
@@ -38,6 +40,13 @@ class MainWindow():
         self.symbols = self.getSymbolList()
         self.loop()
         self.updatePort()
+
+    
+    def on_closing(self):
+        after_list = self.root.tk.call('after', 'info')
+        for item in after_list:
+            self.root.after_cancel(item)
+        self.root.destroy()
 
     def click_label(self, data):
         if type(data) is str:
@@ -101,8 +110,7 @@ class MainWindow():
         self.updateScroll()
         self.loop_count += 1
         self.loop_time += time.time()-start
-        self.root.after(self.scroll_delay, self.loop)
-
+        self.after[0] = self.root.after(self.scroll_delay, self.loop)
 
     def portValue(self):
         '''Returns (Total Value, Day Change, All Change)'''
@@ -215,7 +223,7 @@ class MainWindow():
                 else:
                     self.leadlaglabels[pos].configure(text=msg, fg='black')
         
-        self.root.after(self.port_delay, self.updatePort)
+        self.after[1] = self.root.after(self.port_delay, self.updatePort)
 
 
     def changeSort(self):

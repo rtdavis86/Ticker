@@ -18,12 +18,22 @@ class MainWindow():
         self.symbols = None
         self.updateNeeded = False
         self.lockdb = False
+        self.win = None
         self.figdict = {}  # Items in dict: fig, ax, artlist 
+        self.modes = ['d', 'w', 'm']
+        self.quotepos = 0
+        self.after = [None, None]
+        
 
         self.createTables()
         self.getQuoteHistory()
         self.updateHistory()
         self.updatePlot()
+
+    def on_closing(self):
+        for i in [0,1]:
+            if not self.after[i] is None:
+                self.after[i].cancel()
 
     def addfig(self, sym):
         if self.lockdb:
@@ -80,17 +90,20 @@ class MainWindow():
 
     def updatePlot(self):
         delay = 1000*5
-        if self.updateNeeded:
-            for sym in self.figdict.keys():
-                self.figdict[sym]['ax'].clear()
+        k = list(self.figdict.keys())
+        if self.updateNeeded and not self.lockdb:
+            for sym in k:
+                plotdict = self.figdict.get(sym, None)
+                if plotdict is None: continue
+                plotdict['ax'].clear()
                 self.plotPort(sym)
-        self.root.after(delay, self.updatePlot)
+        self.after[0] = self.root.after(delay, self.updatePlot)
 
 
     def updateHistory(self):
         delay = 1000*30*1
         if self.lockdb: 
-            self.root.after(delay, self.updateHistory)
+            self.after[1] = self.root.after(delay, self.updateHistory)
             return
         if self.getMarketStatus()[0] in ['PRE', 'REGULAR', 'POST']:
             data = self.getSymbolPrices()
@@ -113,7 +126,7 @@ class MainWindow():
                     cur.execute('INSERT INTO PlotHistory_w (stock_id, price, unixtime) VALUES(?,?,?)', (id,price,unixtime))
             self.updateNeeded = True
             conn.commit()
-        self.root.after(delay, self.updateHistory)
+        self.after[1] = self.root.after(delay, self.updateHistory)
 
 
     def plotPort(self, sym):
@@ -129,9 +142,11 @@ class MainWindow():
         lastprice = {}
         prevclose = {}
         basis = {}
+        all_basis = 0
         for s, price, pclose, shares, b, _ in data:
             if s == 'CASH':
                 cash = util.tryFloat(shares)
+                all_basis += cash
             else:
                 shareDict[s] = shares
                 lastprice[s] = price
@@ -140,6 +155,7 @@ class MainWindow():
                     basis[s] = None
                 else:
                     basis[s] = b/shares
+                    all_basis += b
 
         history, histtimes = self.getdbHistory(mode)
         if len(histtimes) == 0:
@@ -148,12 +164,13 @@ class MainWindow():
         self.last_time = histtimes[-1]
 
         if mode == 'd':
-            days_list = list(set([datetime.fromtimestamp(ut).day for ut in histtimes]))
-            dt = datetime.fromtimestamp(self.last_time)
-            day_index = 10 - per
-            if day_index < 0: day_index = 0
-            if day_index >= len(days_list): day_index = len(day_index)-1
-            mindate = datetime(dt.year, dt.month, days_list[day_index], 1, 0).timestamp()
+            day_list = list(set([datetime.fromtimestamp(h).day for h in histtimes]))
+            i = len(day_list) - per
+            if i < 0: i = 0
+            dayv = day_list[i]
+            day_start = next(d for d in histtimes if datetime.fromtimestamp(d).day == dayv)
+            day_start = datetime.fromtimestamp(day_start).replace(hour=1)
+            mindate = day_start.timestamp()
         elif mode == 'w':
             dt = datetime.fromtimestamp(self.last_time)
             begin_dt = dt - timedelta(days=per*7)
@@ -168,8 +185,8 @@ class MainWindow():
         for s in history.keys():
             history[s] = history[s][-len(histtimes):]
 
-        basis_line = None
         if sym == 'TAV':
+            basis_line = all_basis
             for step in range(len(histtimes)+1):
                 stepTotal = cash
                 for s in self.symbols:
@@ -185,6 +202,9 @@ class MainWindow():
             if (not basis[sym] is None) and basis[sym] > 0:
                 basis_line = basis[sym]
 
+        if len(total) == 0:
+            print(f'portplot.py: plotPort(sym = {sym}) - No Data')
+            return
         ptotal = total[0]
         ax.plot(total, color='black')
         if sym == 'TAV':
@@ -266,7 +286,7 @@ class MainWindow():
                 lineitem = ax.axvline(x=pos, color='y', linestyle=(0, (5, 10)))
                 artlist.append(lineitem)
                 atext = ax.text(pos, ylim[0], '4p', ha='left', va='bottom')
-            if (dt-pday).days >= 1:
+            if dt.day != pday.day >= 1:
                 deltadays += 1
                 pday = dt
             if deltadays >= delta:
@@ -278,58 +298,67 @@ class MainWindow():
 
         self.figdict[sym]['artlist'] = artlist
         plt.draw()
-        plt.pause(0.001)
+        #plt.pause(0.001)
 
     def getQuoteHistory(self):
+        if self.quotepos >= len(self.modes):
+            self.quotepos = 0
+            self.lockdb = False
+            if not self.win is None:
+                self.win.after(5000, self.win.destroy)
+            return
+        self.lockdb = True
         iddict = self.getSymbolList(idDict=True)
 
         # Convert timestamp to unixsecs: int(timevalues[i].to_pydatetime().timestamp())
         # Convert unixsecs to datetime: datetime.fromtimestamp(unixsecs)
-        self.win = None
-        for mode in ['d', 'w', 'm']:
-            if mode == 'd':
-                per = '10d'
-                interval = '5m'
-            elif mode == 'w':
-                per = '3mo'
-                interval = '60m'
-            elif mode == 'm':
-                per = '1y'
-                interval = '1d'
-            history_AAPL = Ticker('AAPL').history(period=per, interval=interval)
-            timevalues = history_AAPL.index.tolist()
-            if type(timevalues[0][1]) is Timestamp:
-                timevalues = [int(t.to_pydatetime().timestamp()) for sym,t in timevalues]
-            else:
-                timevalues = [int(datetime.combine(t, datetime.min.time()).timestamp()) for sym,t in timevalues]
-            history, histtimes = self.getdbHistory(mode)
-            need_update = False
-            if len(histtimes) == 0: need_update = True
-            elif abs(timevalues[0]-histtimes[0]) > 60 * 60: need_update = True
-            elif timevalues[-1] - histtimes[-1] > 60*60*2: need_update = True
-            if not need_update:
-                continue
-            if self.win is None:
-                self.win = Toplevel()
-            tbox = Text(self.win)
-            tbox.pack()
-            msg = f'Update Needed for mode {mode}: len(histtimes)={len(histtimes)}\n'
-            if len(histtimes) > 0:
-                msg += f'Start delta (mins): {abs(timevalues[0]-histtimes[0])/(60*60):.1f}'
-                msg += f', End Delta (min): {abs(timevalues[-1]-histtimes[-1])/(60*60):.1f}\n'
-            tbox.insert(END, msg)
+        mode = self.modes[self.quotepos]
+        if mode == 'd':
+            per = '10d'
+            interval = '5m'
+        elif mode == 'w':
+            per = '3mo'
+            interval = '60m'
+        elif mode == 'm':
+            per = '1y'
+            interval = '1d'
+        history_AAPL = Ticker('AAPL').history(period=per, interval=interval)
+        timevalues = history_AAPL.index.tolist()
+        if type(timevalues[0][1]) is Timestamp:
+            timevalues = [int(t.to_pydatetime().timestamp()) for sym,t in timevalues]
+        else:
+            timevalues = [int(datetime.combine(t, datetime.min.time()).timestamp()) for sym,t in timevalues]
+        history, histtimes = self.getdbHistory(mode)
+        need_update = False
+        if len(histtimes) == 0: need_update = True
+        elif abs(timevalues[0]-histtimes[0]) > 60 * 60*3: need_update = True
+        elif timevalues[-1] - histtimes[-1] > 60*60*3: need_update = True
+        if not need_update:
+            self.quotepos += 1
+            self.getQuoteHistory()
+            return
+        if self.win is None:
+            self.win = Toplevel()
+        tbox = Text(self.win, height=8)
+        tbox.pack()
+        msg = f'Update Needed for mode {mode}: len(histtimes)={len(histtimes)}\n'
+        if len(histtimes) > 0:
+            msg += f'Start delta: {abs(timevalues[0]-histtimes[0])/(60*60):.1f} hr'
+            msg += f', End Delta: {abs(timevalues[-1]-histtimes[-1])/(60*60):.1f} hr\n'
+        tbox.insert(END, msg)
 
-            self.lockdb = True
-            conn = sqlite3.connect(self.dbfile)
-            cur = conn.cursor()
-            cur.execute(f'DELETE FROM PlotHistory_{mode}')
-            conn.commit()
-            self.iddict = iddict
-            self.symkeys = list(iddict.keys())
-            self.sympos = 0
-            self.updateoneattime(per, interval, tbox, mode)
+        conn = sqlite3.connect(self.dbfile)
+        cur = conn.cursor()
+        cur.execute(f'DELETE FROM PlotHistory_{mode}')
+        conn.commit()
+        self.iddict = iddict
+        self.symkeys = list(iddict.keys())
+        self.sympos = 0
+        self.updateoneattime(per, interval, tbox, mode)
 
     def updateoneattime(self, per, interval, tbox, mode):
+        if self.sympos >= len(self.symkeys):
+            self.sympos = 0
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         sym = self.symkeys[self.sympos]
@@ -348,18 +377,18 @@ class MainWindow():
             conn.commit()
         self.sympos += 1
         if self.sympos < len(self.symkeys):
-            self.root.after(100, lambda per=per, interval=interval, tbox=tbox, mode=mode: self.updateoneattime(per,interval,tbox,mode))
+            self.root.after(500, lambda per=per, interval=interval, tbox=tbox, mode=mode: self.updateoneattime(per,interval,tbox,mode))
         else:
-            self.lockdb = False
-            tbox.insert(END, '\nDone')
-            self.win.after(3000, self.win.destroy)
+            self.quotepos += 1
+            self.getQuoteHistory()
+            
 
     def getdbHistory(self, mode):
         '''Returns pricedict{[price]}, [unixtime]'''
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         history = {}
-        havetimes = False
+        histtimes = []
         if self.symbols is None:
             data = self.getSymbolPrices()
             self.symbols = [d[0] for d in data if d[0] != 'CASH']
@@ -367,9 +396,12 @@ class MainWindow():
             cur.execute(f'SELECT PlotHistory_{mode}.price, unixtime, name FROM PlotHistory_{mode} JOIN StockList ON PlotHistory_{mode}.stock_id = StockList.id WHERE StockList.name=? ORDER BY unixtime', (sym,))
             data = cur.fetchall()
             history[sym] = [d[0] for d in data]
-            if not havetimes:
-                histtimes = [d[1] for d in data]
-                havetimes = True
+            symtimes = [d[1] for d in data]
+            if len(symtimes) > len(histtimes):
+                histtimes = symtimes
+            if len(symtimes) > 0 and symtimes[-1] > histtimes[-1]:
+                histtimes.append(symtimes[-1])
+            
         return history, histtimes
 
     def createTables(self):
