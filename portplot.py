@@ -23,7 +23,7 @@ class MainWindow():
         self.modes = ['d', 'w', 'm']
         self.quotepos = 0
         self.after = [None, None]
-        
+        self.inhover = False
 
         self.createTables()
         self.getQuoteHistory()
@@ -34,6 +34,49 @@ class MainWindow():
         for i in [0,1]:
             if not self.after[i] is None:
                 self.after[i].cancel()
+    
+    def hover(self, event):
+        if self.inhover: return
+        self.inhover = True
+        #print(event)
+        fig_sym = [k for k, i in self.figdict.items() if event.inaxes==i['ax']]
+        if len(fig_sym) == 0: 
+            for k, i in self.figdict.items():
+                vline = i.get('vline', None)
+                vline_text = i.get('vline_text', None)
+                if not vline is None: vline.remove()
+                if not vline_text is None: vline_text.remove()
+                i['vline'] = None
+                i['vline_text'] = None
+            self.inhover = False
+            return
+        fig_sym = fig_sym[0]
+        histtimes = self.figdict[fig_sym].get('histtimes', None)
+        xd = round(event.xdata)
+        if histtimes is None or xd < 0 or xd >= len(histtimes):
+            self.inhover = False
+            return
+        fig = self.figdict[fig_sym]['fig']
+        ax = self.figdict[fig_sym]['ax']
+        ylim = ax.get_ylim()
+
+        # Draw vert line at X value and show time
+        vline = self.figdict[fig_sym].get('vline', None)
+        vline_text = self.figdict[fig_sym].get('vline_text', None)
+        if not vline is None: vline.remove()
+        if not vline_text is None: vline_text.remove()
+
+        self.figdict[fig_sym]['vline_pos'] = xd
+        self.figdict[fig_sym]['vline'] = ax.axvline(x=xd, color='c')
+        dt = datetime.fromtimestamp(histtimes[xd])
+        self.figdict[fig_sym]['textv'] = f' {dt.strftime("%I:%M %p")}'
+        self.figdict[fig_sym]['vline_text'] = ax.text(xd, ylim[0]+(ylim[1]-ylim[0])*0.1, self.figdict[fig_sym]['textv'], ha='left', va='bottom')
+        
+        # Draw horz line at closest Y point and show value
+
+        fig.canvas.draw_idle()
+        self.inhover = False
+
 
     def addfig(self, sym):
         if self.lockdb:
@@ -50,6 +93,7 @@ class MainWindow():
         mngr.window.wm_geometry('%dx%d+%d+%d' % (1450, 600, 30, 30))
         plt.ion()
         but_list = self.add_buttons(sym)
+        fig.canvas.mpl_connect("motion_notify_event", self.hover)
         plt.show()
         self.figdict[sym] = {'fig': fig, 'ax': ax, 'artlist': [], 'mode': 'd', 'per': 1, 'but_list': but_list}
         self.plotPort(sym)
@@ -165,8 +209,8 @@ class MainWindow():
 
         if mode == 'd':
             day_list = list(set([datetime.fromtimestamp(h).day for h in histtimes]))
-            i = len(day_list) - per
-            if i < 0: i = 0
+            i = day_list.index(datetime.fromtimestamp(histtimes[-1]).day) - per + 1
+            #if i < 0: i = 0
             dayv = day_list[i]
             day_start = next(d for d in histtimes if datetime.fromtimestamp(d).day == dayv)
             day_start = datetime.fromtimestamp(day_start).replace(hour=1)
@@ -182,6 +226,7 @@ class MainWindow():
             begin_dt = begin_dt.replace(hour=1)
             mindate = begin_dt.timestamp()
         histtimes = [h for h in histtimes if h > mindate]
+        self.figdict[sym]['histtimes'] = histtimes
         for s in history.keys():
             history[s] = history[s][-len(histtimes):]
 
@@ -232,6 +277,7 @@ class MainWindow():
         artlist = []
         xlim = ax.get_xlim()
         ylim = ax.get_ylim()
+
         # Basis line
         if (not basis_line is None) and basis_line > ylim[0] and basis_line < ylim[1]:
             lineitem = ax.axhline(y=basis_line, color='blue', linestyle='-')
@@ -258,6 +304,14 @@ class MainWindow():
             artlist.append(atext)
 
         # Add vertical lines
+        vline = self.figdict[sym].get('vline', None)        
+        if not vline is None:
+            vline.remove()
+            vline_text = self.figdict[sym].get('vline_text', None)
+            vline_text.remove()
+            self.figdict[sym]['vline'] = ax.axvline(x=self.figdict[sym]['vline_pos'], color='c')
+            textv = self.figdict[sym]['textv']
+            self.figdict[sym]['vline_text'] = ax.text(self.figdict[sym]['vline_pos'], ylim[0]+(ylim[1]-ylim[0])*0.1, textv, ha='left', va='bottom')
         ax.get_xaxis().set_ticks([])
         pday = datetime(1972, 1, 1)
         delta = 1
@@ -306,6 +360,7 @@ class MainWindow():
             self.lockdb = False
             if not self.win is None:
                 self.win.after(5000, self.win.destroy)
+                self.win = None
             return
         self.lockdb = True
         iddict = self.getSymbolList(idDict=True)
@@ -331,7 +386,7 @@ class MainWindow():
         history, histtimes = self.getdbHistory(mode)
         need_update = False
         if len(histtimes) == 0: need_update = True
-        elif abs(timevalues[0]-histtimes[0]) > 60 * 60*3: need_update = True
+        elif histtimes[0] - timevalues[0] > 60*60*3: need_update = True
         elif timevalues[-1] - histtimes[-1] > 60*60*3: need_update = True
         if not need_update:
             self.quotepos += 1
