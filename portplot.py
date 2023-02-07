@@ -3,7 +3,7 @@ import sqlite3
 from yahooquery import Ticker
 import utility as util
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import numpy as np
 from matplotlib.widgets import Button as pltButton
 import math
@@ -34,6 +34,22 @@ class MainWindow():
         for i in [0,1]:
             if not self.after[i] is None:
                 self.after[i].cancel()
+
+    def remove_lines(self):
+        for k, i in self.figdict.items():
+            vline = i.get('vline', None)
+            vline_text = i.get('vline_text', None)
+            if not vline is None: vline.remove()
+            if not vline_text is None: vline_text.remove()
+            i['vline'] = None
+            i['vline_text'] = None
+
+            hline = i.get('hline', None)
+            hline_text = i.get('hline_text', None)
+            if not hline is None: hline.remove()
+            if not hline_text is None: hline_text.remove()
+            i['hline'] = None
+            i['hline_text'] = None
     
     def hover(self, event):
         if self.inhover: return
@@ -41,24 +57,20 @@ class MainWindow():
         #print(event)
         fig_sym = [k for k, i in self.figdict.items() if event.inaxes==i['ax']]
         if len(fig_sym) == 0: 
-            for k, i in self.figdict.items():
-                vline = i.get('vline', None)
-                vline_text = i.get('vline_text', None)
-                if not vline is None: vline.remove()
-                if not vline_text is None: vline_text.remove()
-                i['vline'] = None
-                i['vline_text'] = None
+
             self.inhover = False
             return
         fig_sym = fig_sym[0]
-        histtimes = self.figdict[fig_sym].get('histtimes', None)
+        histtimes = self.figdict[fig_sym].get('xvals', None)
+        yvals = self.figdict[fig_sym].get('yvals', None)
         xd = round(event.xdata)
-        if histtimes is None or xd < 0 or xd >= len(histtimes):
+        if histtimes is None or yvals is None or xd < 0 or xd >= len(histtimes):
             self.inhover = False
             return
         fig = self.figdict[fig_sym]['fig']
         ax = self.figdict[fig_sym]['ax']
         ylim = ax.get_ylim()
+        xlim = ax.get_xlim()
 
         # Draw vert line at X value and show time
         vline = self.figdict[fig_sym].get('vline', None)
@@ -73,6 +85,21 @@ class MainWindow():
         self.figdict[fig_sym]['vline_text'] = ax.text(xd, ylim[0]+(ylim[1]-ylim[0])*0.1, self.figdict[fig_sym]['textv'], ha='left', va='bottom')
         
         # Draw horz line at closest Y point and show value
+        hline = self.figdict[fig_sym].get('hline', None)
+        hline_text = self.figdict[fig_sym].get('hline_text', None)
+        if not hline is None: hline.remove()
+        if not hline_text is None: hline_text.remove()
+
+        self.figdict[fig_sym]['hline_pos'] = yvals[xd]
+        self.figdict[fig_sym]['hline'] = ax.axhline(y=yvals[xd], color='c')
+        if yvals[xd] > 10000:
+            texth = f' {yvals[xd]:.0f}'
+        elif yvals[xd] > 1000:
+            texth = f' {yvals[xd]:.1f}'
+        else:
+            texth = f' {yvals[xd]:.2f}'
+        self.figdict[fig_sym]['texth'] = texth
+        self.figdict[fig_sym]['hline_text'] = ax.text(xlim[0], yvals[xd], self.figdict[fig_sym]['texth'], ha='left', va='bottom')
 
         fig.canvas.draw_idle()
         self.inhover = False
@@ -186,6 +213,7 @@ class MainWindow():
         lastprice = {}
         prevclose = {}
         basis = {}
+        basis_line = None
         all_basis = 0
         for s, price, pclose, shares, b, _ in data:
             if s == 'CASH':
@@ -226,7 +254,7 @@ class MainWindow():
             begin_dt = begin_dt.replace(hour=1)
             mindate = begin_dt.timestamp()
         histtimes = [h for h in histtimes if h > mindate]
-        self.figdict[sym]['histtimes'] = histtimes
+        self.figdict[sym]['xvals'] = histtimes
         for s in history.keys():
             history[s] = history[s][-len(histtimes):]
 
@@ -252,6 +280,7 @@ class MainWindow():
             return
         ptotal = total[0]
         ax.plot(total, color='black')
+        self.figdict[sym]['yvals'] = total
         if sym == 'TAV':
             msg = 'Total Account Value: '
         else:
@@ -267,6 +296,17 @@ class MainWindow():
             item.remove()
 
         # Add horizontal lines
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        hline = self.figdict[sym].get('hline', None)        
+        if not hline is None:
+            hline.remove()
+            hline_text = self.figdict[sym].get('hline_text', None)
+            hline_text.remove()
+            self.figdict[sym]['hline'] = ax.axhline(y=self.figdict[sym]['hline_pos'], color='c')
+            texth = self.figdict[sym]['texth']
+            self.figdict[sym]['hline_text'] = ax.text(xlim[0], self.figdict[sym]['hline_pos'], texth, ha='left', va='bottom')
+
         minv_per = 100*(min(total)/ptotal-1)
         maxv_per = 100*(max(total)/ptotal-1)
         delta_per = 0.1
@@ -275,8 +315,6 @@ class MainWindow():
         while (maxv_per-minv_per)/delta_per > 9:
             delta_per += 0.5
         artlist = []
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
 
         # Basis line
         if (not basis_line is None) and basis_line > ylim[0] and basis_line < ylim[1]:
@@ -312,6 +350,7 @@ class MainWindow():
             self.figdict[sym]['vline'] = ax.axvline(x=self.figdict[sym]['vline_pos'], color='c')
             textv = self.figdict[sym]['textv']
             self.figdict[sym]['vline_text'] = ax.text(self.figdict[sym]['vline_pos'], ylim[0]+(ylim[1]-ylim[0])*0.1, textv, ha='left', va='bottom')
+        
         ax.get_xaxis().set_ticks([])
         pday = datetime(1972, 1, 1)
         delta = 1
@@ -412,6 +451,10 @@ class MainWindow():
         self.updateoneattime(per, interval, tbox, mode)
 
     def updateoneattime(self, per, interval, tbox, mode):
+        if len(self.symkeys) == 0:
+            self.quotepos += 1
+            self.getQuoteHistory()
+            return
         if self.sympos >= len(self.symkeys):
             self.sympos = 0
         conn = sqlite3.connect(self.dbfile)

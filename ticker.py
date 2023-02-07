@@ -104,7 +104,14 @@ class MainWindow():
         cur.execute(create_options)
         conn.commit()
 
-        
+        cur.execute('SELECT id FROM StockList')
+        data = cur.fetchall()
+        if len(data) == 0:
+            stockdict = {'CASH':('', 0, 0), '^SPX':('S&P 500', 0, 0), 'SPY':('SPDR S&P 500 ETF', 0, 0), 'AAPL':('Apple Inc', 0, 0), 'QQQ': ('Invesco QQQ', 0, 0), 'VXF': ('VANGUARD EXTENDED MARKETETF', 0, 0), 'AMZN': ('AMAZON.COM INC',0,0)}
+            for k,v in stockdict.items():
+                cur.execute('INSERT INTO StockList (name,description,Shares,Basis) VALUES (?,?,?,?)', (k, v[0], v[1], v[2]))
+        conn.commit()
+
     def loop(self):
         start = time.time()
         self.updateScroll()

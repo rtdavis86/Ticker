@@ -12,6 +12,8 @@ class MainWindow():
         self.root = root
         self.quotes_done = False
         self.num_quotes = 0
+        self.pricedelay = 5 * 1000
+        self.quotesper = 5
 
         # Update stock list from latest schwab download
         self.parsecsv()
@@ -24,9 +26,7 @@ class MainWindow():
 
 
     def checkprice(self):
-        pricedelay = 3 * 1000
-        numquotes = 10
-        symbols = self.symbols[self.priceindex:self.priceindex + numquotes]
+        symbols = self.symbols[self.priceindex:self.priceindex + self.quotesper]
         if not self.callback is None:
             self.callback('quote', f'Getting Quotes: {symbols}')
         
@@ -36,16 +36,19 @@ class MainWindow():
             if abs(v['price'] - pp) > 0.001:
                 self.updatePrice(k, v['price'], v['pclose'])
                 
-        self.priceindex += numquotes
+        self.priceindex += self.quotesper
         if self.priceindex >= len(self.symbols):
             self.priceindex = 0
             self.quotes_done = True
+            self.pricedelay = self.pricedelay * 5
             self.callback('done', None)
 
         if v['state'] == 'CLOSED':
-            pricedelay = 60 * 5 * 1000
+            self.pricedelay = 60 * 5 * 1000
             self.callback('done', 'Getting Quotes: Markets Closed')
-        self.root.after(pricedelay, self.checkprice)
+        else:
+            self.pricedelay = 5 * 1000
+        self.root.after(self.pricedelay, self.checkprice)
 
 
     def getSymbolList(self, idDict=False):
@@ -69,7 +72,7 @@ class MainWindow():
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         stockdict = {}
-        schwab = False
+        schwab_type = False
 
         try:
             f = open(filename_schwab, 'r')
@@ -87,7 +90,7 @@ class MainWindow():
                 f = None
 
         if f is None:
-            stockdict = {'CASH':('', 0, 0), '^SPX':('S&P 500', 0, 0), 'SPY':('SPDR S&P 500 ETF', 0, 0), 'AAPL':('Apple Inc', 0, 0), 'QQQ': ('Invesco QQQ', 0, 0)}
+            stockdict = {'CASH':('', 0, 0), '^SPX':('S&P 500', 0, 0), 'SPY':('SPDR S&P 500 ETF', 0, 0), 'AAPL':('Apple Inc', 0, 0), 'QQQ': ('Invesco QQQ', 0, 0), 'VXF': ('VANGUARD EXTENDED MARKETETF', 0, 0), 'AMZN': ('AMAZON.COM INC',0,0)}
             fn = self.writecsv(stockdict)
             messagebox.showwarning('No CSV File', f'Unable to open schwab.csv or stockscroll.csv.  Using default stock list.  To change stock list, edit:\n{fn}')
         else:
