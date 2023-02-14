@@ -393,7 +393,7 @@ class MainWindow():
         plt.draw()
         #plt.pause(0.001)
 
-    def getQuoteHistory(self):
+    def getQuoteHistory(self, force_update=False):
         if self.quotepos >= len(self.modes):
             self.quotepos = 0
             self.lockdb = False
@@ -427,7 +427,7 @@ class MainWindow():
         if len(histtimes) == 0: need_update = True
         elif histtimes[0] - timevalues[0] > 60*60*3: need_update = True
         elif timevalues[-1] - histtimes[-1] > 60*60*3: need_update = True
-        if not need_update:
+        if not need_update and not force_update:
             self.quotepos += 1
             self.getQuoteHistory()
             return
@@ -448,12 +448,12 @@ class MainWindow():
         self.iddict = iddict
         self.symkeys = list(iddict.keys())
         self.sympos = 0
-        self.updateoneattime(per, interval, tbox, mode)
+        self.updateoneattime(per, interval, tbox, mode, force_update)
 
-    def updateoneattime(self, per, interval, tbox, mode):
+    def updateoneattime(self, per, interval, tbox, mode, force_update=False):
         if len(self.symkeys) == 0:
             self.quotepos += 1
-            self.getQuoteHistory()
+            self.getQuoteHistory(force_update)
             return
         if self.sympos >= len(self.symkeys):
             self.sympos = 0
@@ -475,10 +475,10 @@ class MainWindow():
             conn.commit()
         self.sympos += 1
         if self.sympos < len(self.symkeys):
-            self.root.after(500, lambda per=per, interval=interval, tbox=tbox, mode=mode: self.updateoneattime(per,interval,tbox,mode))
+            self.root.after(500, lambda per=per, interval=interval, tbox=tbox, mode=mode, force_update=force_update: self.updateoneattime(per,interval,tbox,mode, force_update))
         else:
             self.quotepos += 1
-            self.getQuoteHistory()
+            self.getQuoteHistory(force_update)
             
 
     def getdbHistory(self, mode):

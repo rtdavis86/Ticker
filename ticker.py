@@ -363,6 +363,7 @@ class MainWindow():
         Button(self.labelFrame, text='<', font=buttonfont, command=self.moveback).pack(side=LEFT, padx=3)
         Button(self.labelFrame, text='>', font=buttonfont, command=self.moveforward).pack(side=LEFT, padx=3)
         Button(self.labelFrame, text='Config', command=self.config, font=buttonfont).pack(side=LEFT, padx=3)
+        Button(self.labelFrame, text='Plot Update', command=lambda: self.plot.getQuoteHistory(force_update=True), font=buttonfont).pack(side=LEFT, padx=3)
         
         self.tickFrame = Frame(self.root)
         self.tickFrame.pack(fill=BOTH)
@@ -382,7 +383,7 @@ class MainWindow():
                 if i > 0: msg = label
                 label.bind("<Button-1>", lambda e, msg=msg:self.click_label(msg))
         self.labelitems[-1].bind("<Button-1>", lambda e:self.click_label('S&P500'))
-
+        
 
     def getSymbolList(self, idDict=False):
         '''Returns list of symbols or dict (sym is key, id is value)'''
