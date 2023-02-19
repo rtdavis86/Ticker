@@ -50,14 +50,30 @@ class MainWindow():
             if not hline_text is None: hline_text.remove()
             i['hline'] = None
             i['hline_text'] = None
+
+    def hover_leave(self, event):
+        fig_sym = [k for k, i in self.figdict.items() if event.inaxes==i['ax']]
+        if len(fig_sym) == 0: 
+            return
+        for figname in fig_sym:
+            vline = self.figdict[figname].get('vline', None)
+            vline_text = self.figdict[figname].get('vline_text', None)
+            if not vline is None: vline.remove()
+            if not vline_text is None: vline_text.remove()
+            self.figdict[figname]['vline'] = None
+            self.figdict[figname]['vline_text'] = None
+            hline = self.figdict[figname].get('hline', None)
+            hline_text = self.figdict[figname].get('hline_text', None)
+            if not hline is None: hline.remove()
+            if not hline_text is None: hline_text.remove()
+            self.figdict[figname]['hline'] = None
+            self.figdict[figname]['hline_text'] = None
     
     def hover(self, event):
         if self.inhover: return
         self.inhover = True
-        #print(event)
         fig_sym = [k for k, i in self.figdict.items() if event.inaxes==i['ax']]
         if len(fig_sym) == 0: 
-
             self.inhover = False
             return
         fig_sym = fig_sym[0]
@@ -121,6 +137,7 @@ class MainWindow():
         plt.ion()
         but_list = self.add_buttons(sym)
         fig.canvas.mpl_connect("motion_notify_event", self.hover)
+        fig.canvas.mpl_connect("axes_leave_event", self.hover_leave)
         plt.show()
         self.figdict[sym] = {'fig': fig, 'ax': ax, 'artlist': [], 'mode': 'd', 'per': 1, 'but_list': but_list}
         self.plotPort(sym)
@@ -422,7 +439,7 @@ class MainWindow():
             timevalues = [int(t.to_pydatetime().timestamp()) for sym,t in timevalues]
         else:
             timevalues = [int(datetime.combine(t, datetime.min.time()).timestamp()) for sym,t in timevalues]
-        history, histtimes = self.getdbHistory(mode)
+        _, histtimes = self.getdbHistory(mode)
         need_update = False
         if len(histtimes) == 0: need_update = True
         elif histtimes[0] - timevalues[0] > 60*60*3: need_update = True

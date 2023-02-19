@@ -8,10 +8,6 @@ import time
 import utility as util
 import portplot
 
-# To-D0:
-# 1.  Improve config box, add image for button
-# 
-
 class MainWindow():
     def __init__(self, root):
         self.root = root
@@ -410,7 +406,9 @@ class MainWindow():
         stocks = cur.fetchall()
         if stocks is None or len(stocks)==0:
             print(f'Error retrieving data from {self.dbfile}')
-        return [(s[0], s[1], s[2], s[3], s[4]) for s in stocks]
+            return None
+        stock_data = [(s[0], s[1], s[2], s[3], s[4]) for s in stocks if (not s[1] is None) and (not s[2] is None)]
+        return stock_data
 
 
     def getPrice(self, sym):
