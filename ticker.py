@@ -19,12 +19,13 @@ class MainWindow():
         self.sortPercent = True
         self.scroll_delay = self.options[1]
         self.port_delay = self.options[2]
+        self.compare_symbol = self.options[7]
         self.loop_count = 0
         self.loop_time = 0
         self.show_leadlag = False
         self.leadlagshow = 5
         root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.plot = portplot.MainWindow(root)
+        self.plot = portplot.MainWindow(root, self.compare_symbol)
         self.after = [None, None]
         
         # Setup Labels for 2 lines of text: 0-info message, 1-tick changes
@@ -66,20 +67,21 @@ class MainWindow():
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         create_options = '''CREATE TABLE IF NOT EXISTS "Options" (
-            "name"          TEXT,
-	        "scroll_delay"	INTEGER,
-	        "port_delay"	INTEGER,
-	        "win_x"	INTEGER,
-	        "win_y"	INTEGER,
-	        "win_dx"	INTEGER,
-	        "win_dy"	INTEGER);'''
+            "name"              TEXT,
+	        "scroll_delay"	    INTEGER,
+	        "port_delay"	    INTEGER,
+	        "win_x"	            INTEGER,
+	        "win_y"	            INTEGER,
+	        "win_dx"	        INTEGER,
+	        "win_dy"	        INTEGER
+            "compare_symbol"    TEXT);'''
         cur.execute(create_options)
-        cur.execute('SELECT name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy FROM Options')
+        cur.execute('SELECT name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy, compare_symbol FROM Options')
         data = cur.fetchall()
-        defv = ('default',500, 5000, 27, 654, 1500, 130)
+        defv = ('default',500, 5000, 27, 654, 1500, 130, 'SPY')
         if data is None or len(data) == 0 or not 'default' in [d[0] for d in data]:
-            insert_default = '''INSERT INTO Options (name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy)
-                VALUES(?,?,?,?,?,?,?)'''
+            insert_default = '''INSERT INTO Options (name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy, compare_symbol)
+                VALUES(?,?,?,?,?,?,?,?)'''
             cur.execute(insert_default, defv)
         if 'user' in [d[0] for d in data]:
             self.options = [d for d in data if d[0]=='user']
@@ -247,7 +249,7 @@ class MainWindow():
         self.updateScroll()
 
 
-    def config(self): # Options: 0-name, 1-scroll_delay, 2-port_delay, 3-win_x, 4-win_y, 5-win_dx, 6-win_dy
+    def config(self): # Options: 0-name, 1-scroll_delay, 2-port_delay, 3-win_x, 4-win_y, 5-win_dx, 6-win_dy, 7-compare_symbol
         self.configwin = Toplevel()
         row1 = Frame(self.configwin)
         row1.pack(side=TOP, fill=X, padx=5, pady=5)
@@ -262,6 +264,18 @@ class MainWindow():
         self.pdelayent = Entry(row2)
         self.pdelayent.insert(0, f'{self.options[2]/1000.0}')
         self.pdelayent.pack(side=RIGHT, expand=YES, fill=X, padx=2)
+
+        row3 = Frame(self.configwin)
+        row3.pack(side=TOP, fill=X, padx=5, pady=5)
+        Label(row3, width=35, text='Compare Symbol:', anchor='w').pack(padx=2, side=LEFT)
+        sel_options = self.symbols.copy()
+        sel_options.insert(0, 'None')
+        self.config_compare = StringVar()
+        if self.options[7] in sel_options:
+            self.config_compare.set(self.options[7])
+        else:
+            self.config_compare.set(sel_options[0])
+        OptionMenu(row3 , self.config_compare , *sel_options ).pack(side=RIGHT, padx=2)
 
         self.winpos = []
         self.geomlabel = Label(self.configwin, text=f'Win Geometry: x={self.options[3]:.0f}, y={self.options[4]:.0f}, dx={self.options[5]:.0f}, dy={self.options[6]:.0f}', anchor='w')
@@ -286,20 +300,23 @@ class MainWindow():
         if len(self.winpos) > 0:
             for i in range(4):
                 self.options[i+3] = self.winpos[i]
+        self.options[7] = self.opt3
+        self.plot.compare_symbol = self.options[7]
         conn = sqlite3.connect(self.dbfile)
         cur = conn.cursor()
         cur.execute('SELECT name FROM Options WHERE name = ?', ('user',))
         data = cur.fetchone()
         if data is None or len(data) == 0:
-            insert_values = '''INSERT INTO Options (name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy)
-                VALUES(?,?,?,?,?,?,?)'''
+            insert_values = '''INSERT INTO Options (name, scroll_delay, port_delay, win_x, win_y, win_dx, win_dy, compare_symbol)
+                VALUES(?,?,?,?,?,?,?,?)'''
             cur.execute(insert_values, tuple(self.options))
         else:
-            update_values = '''UPDATE Options SET name=?, scroll_delay=?,port_delay=?,win_x=?,win_y=?,win_dx=?,win_dy=? WHERE name="user"'''
+            update_values = '''UPDATE Options SET name=?, scroll_delay=?,port_delay=?,win_x=?,win_y=?,win_dx=?,win_dy=?,compare_symbol=? WHERE name="user"'''
             cur.execute(update_values, tuple(self.options))
         conn.commit()
         self.scroll_delay = self.options[1]
         self.port_delay = self.options[2]
+        self.compare_symbol = self.options[7]
         self.configwin.destroy()
 
 
@@ -319,6 +336,7 @@ class MainWindow():
             self.opt2 = self.options[2]
         self.pdelayent.delete(0, END)
         self.pdelayent.insert(0, f'{self.opt2/1000.0}')
+        self.opt3 = self.config_compare.get()
 
     def setupLabels(self):
         self.tickitems = []
@@ -407,7 +425,7 @@ class MainWindow():
         if stocks is None or len(stocks)==0:
             print(f'Error retrieving data from {self.dbfile}')
             return None
-        stock_data = [(s[0], s[1], s[2], s[3], s[4]) for s in stocks if (not s[1] is None) and (not s[2] is None)]
+        stock_data = [(s[0], s[1], s[2], s[3], s[4]) for s in stocks if (not s[1] is None) and (not s[2] is None) or s[0] == 'CASH']
         return stock_data
 
 
@@ -429,7 +447,9 @@ class MainWindow():
     def getMarketStatus(self):
         '''Returns (marketState, marketTime)'''
         quote = Ticker('AAPL').price
-        return (quote['AAPL'].get('marketState', 'Not Available'),quote['AAPL'].get('regularMarketTime', 'Not Available'))
+        if quote is None:
+            return ('Not Available', 'Not Available')
+        return (quote['AAPL'].get('marketState', 'Not Available''Not Available'),quote['AAPL'].get('regularMarketTime', 'Not Available'))
 
 
 

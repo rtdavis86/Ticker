@@ -12,8 +12,9 @@ from pandas import Timestamp
 from dateutil.relativedelta import relativedelta
 
 class MainWindow():
-    def __init__(self, root):
+    def __init__(self, root, compare_symbol):
         self.root = root
+        self.compare_symbol = compare_symbol
         self.dbfile = 'stockscroll.sqlite'
         self.symbols = None
         self.updateNeeded = False
@@ -292,16 +293,25 @@ class MainWindow():
             if (not basis[sym] is None) and basis[sym] > 0:
                 basis_line = basis[sym]
 
+        spx = None
+        if self.compare_symbol and sym != self.compare_symbol and self.compare_symbol in history:
+            spx = history[self.compare_symbol]
+            adj = total[0]/spx[0]
+            spx = [val*adj for val in spx]
+
         if len(total) == 0:
             print(f'portplot.py: plotPort(sym = {sym}) - No Data')
             return
         ptotal = total[0]
         ax.plot(total, color='black')
+        if not spx is None:
+            ax.plot(spx, color='blue')
+            ax.legend([sym, self.compare_symbol], loc ="lower right")
         self.figdict[sym]['yvals'] = total
         if sym == 'TAV':
             msg = 'Total Account Value: '
         else:
-            msg = f'{sym}: '
+            msg = f'{sym}: {shareDict[sym]:.0f} shares (${total[-1]*shareDict[sym]:.0f}), '
         msg += f'{total[-1]:.2f} ({100.0*(total[-1]/ptotal-1):.2f}%)'
         if not basis_line is None:
             msg += f', Basis: {basis_line:.2f} ({100*(total[-1]/basis_line-1):.2f}%)'
@@ -326,6 +336,11 @@ class MainWindow():
 
         minv_per = 100*(min(total)/ptotal-1)
         maxv_per = 100*(max(total)/ptotal-1)
+        if not spx is None:
+            min_spx = 100*(min(spx)/spx[0]-1)
+            if min_spx < minv_per: minv_per = min_spx
+            max_spx = 100*(max(spx)/spx[0]-1)
+            if max_spx > maxv_per: maxv_per = max_spx
         delta_per = 0.1
         if (maxv_per-minv_per)/delta_per > 9:
             delta_per = 0.5
@@ -353,7 +368,7 @@ class MainWindow():
             if percent < 0.0: color = 'red'
             elif percent > 0.0: color = 'green'
             else: color = 'black'
-            lineitem = ax.axhline(y=yval, color=color, linestyle='--')
+            lineitem = ax.axhline(y=yval, color=color, linestyle=(0, (1,5)))
             artlist.append(lineitem)
             atext = ax.text(xlim[1], yval, f'  {percent:.1f}%', ha='left', va='center')
             artlist.append(atext)
@@ -402,7 +417,7 @@ class MainWindow():
             if deltadays >= delta:
                 deltadays = 0
                 look_for_val = [True, True]
-                lineitem = ax.axvline(x=pos, color='b', linestyle='--')
+                lineitem = ax.axvline(x=pos, color='black', linestyle=(0, (1,5)))
                 artlist.append(lineitem)
                 atext = ax.text(pos, ylim[0], f' {dt.strftime("%a, %m/%d")}', ha='left', va='bottom')
 
@@ -478,7 +493,10 @@ class MainWindow():
         cur = conn.cursor()
         sym = self.symkeys[self.sympos]
         id = self.iddict[sym]
-        history = Ticker(sym).history(period=per, interval=interval)
+        try:
+            history = Ticker(sym).history(period=per, interval=interval)
+        except:
+            history = {}
         tbox.insert(END, sym + ' ')
         if not history.get('close', None) is None:
             timevalues = history.index.tolist()
@@ -567,7 +585,10 @@ class MainWindow():
 
     def getMarketStatus(self):
         '''Returns marketState'''
-        quote = Ticker('AAPL').price
+        try:
+            quote = Ticker('AAPL').price
+        except:
+            return ('Not Available', 0)
         unixtime = int(datetime.strptime(quote['AAPL']['regularMarketTime'], '%Y-%m-%d %H:%M:%S').timestamp())
         return (quote['AAPL'].get('marketState', 'Not Available'), unixtime)
 
